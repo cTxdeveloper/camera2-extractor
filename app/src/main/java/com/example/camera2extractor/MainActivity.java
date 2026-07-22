@@ -5,15 +5,19 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.params.BlackLevelPattern;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
+import android.util.Range;
+import android.util.Size;
+import android.util.SizeF;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -29,7 +33,9 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class MainActivity extends Activity {
@@ -79,22 +85,180 @@ public class MainActivity extends Activity {
                 CameraCharacteristics chars = manager.getCameraCharacteristics(id);
                 Map<String, Object> info = new HashMap<>();
 
+                // ---- LENS FACING ----
                 try { info.put("LENS_FACING", chars.get(CameraCharacteristics.LENS_FACING) == 0 ? "front" : "back"); } catch (Exception ignored) {}
-                try { info.put("SENSOR_INFO_PHYSICAL_SIZE", chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)); } catch (Exception ignored) {}
-                try { info.put("SENSOR_INFO_PIXEL_ARRAY_SIZE", chars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)); } catch (Exception ignored) {}
-                try { info.put("SENSOR_INFO_ACTIVE_ARRAY_SIZE", chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)); } catch (Exception ignored) {}
-                try { info.put("COLOR_FILTER_ARRANGEMENT", chars.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT)); } catch (Exception ignored) {}
-                try { info.put("SENSITIVITY_RANGE", chars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)); } catch (Exception ignored) {}
-                try { info.put("EXPOSURE_TIME_RANGE", chars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)); } catch (Exception ignored) {}
-                try { info.put("LENS_DISTORTION", chars.get(CameraCharacteristics.LENS_DISTORTION)); } catch (Exception ignored) {}
-                try { info.put("APERTURES", chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)); } catch (Exception ignored) {}
-                try { info.put("FOCAL_LENGTHS", chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)); } catch (Exception ignored) {}
-                try { info.put("HYPERFOCAL_DISTANCE", chars.get(CameraCharacteristics.LENS_INFO_HYPERFOCAL_DISTANCE)); } catch (Exception ignored) {}
-                try { info.put("MIN_FOCUS_DISTANCE", chars.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE)); } catch (Exception ignored) {}
-                try { info.put("HARDWARE_LEVEL", chars.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)); } catch (Exception ignored) {}
-                try { info.put("FLASH_AVAILABLE", chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE)); } catch (Exception ignored) {}
-                try { info.put("SENSOR_ORIENTATION", chars.get(CameraCharacteristics.SENSOR_ORIENTATION)); } catch (Exception ignored) {}
 
+                // ---- SENSOR INFO PHYSICAL SIZE ----
+                try {
+                    SizeF size = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+                    if (size != null) {
+                        info.put("SENSOR_INFO_PHYSICAL_SIZE_WIDTH_MM", size.getWidth());
+                        info.put("SENSOR_INFO_PHYSICAL_SIZE_HEIGHT_MM", size.getHeight());
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- SENSOR INFO PIXEL ARRAY SIZE ----
+                try {
+                    Size size = chars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE);
+                    if (size != null) {
+                        info.put("SENSOR_INFO_PIXEL_ARRAY_SIZE_WIDTH", size.getWidth());
+                        info.put("SENSOR_INFO_PIXEL_ARRAY_SIZE_HEIGHT", size.getHeight());
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- SENSOR INFO ACTIVE ARRAY SIZE ----
+                try {
+                    android.graphics.Rect rect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
+                    if (rect != null) {
+                        info.put("SENSOR_INFO_ACTIVE_ARRAY_SIZE_LEFT", rect.left);
+                        info.put("SENSOR_INFO_ACTIVE_ARRAY_SIZE_TOP", rect.top);
+                        info.put("SENSOR_INFO_ACTIVE_ARRAY_SIZE_RIGHT", rect.right);
+                        info.put("SENSOR_INFO_ACTIVE_ARRAY_SIZE_BOTTOM", rect.bottom);
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- COLOR FILTER ARRAY (Bayer) ----
+                try {
+                    Integer cfa = chars.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT);
+                    if (cfa != null) {
+                        String[] cfaNames = {"RGGB", "GRBG", "GBRG", "BGGR", "RGBIR"};
+                        info.put("SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_NAME", (cfa >= 0 && cfa < cfaNames.length) ? cfaNames[cfa] : "UNKNOWN");
+                        info.put("SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_VALUE", cfa);
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- SENSITIVITY RANGE (ISO) ----
+                try {
+                    Range<Integer> range = chars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
+                    if (range != null) {
+                        info.put("SENSOR_INFO_SENSITIVITY_RANGE_MIN", range.getLower());
+                        info.put("SENSOR_INFO_SENSITIVITY_RANGE_MAX", range.getUpper());
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- EXPOSURE TIME RANGE ----
+                try {
+                    Range<Long> range = chars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE);
+                    if (range != null) {
+                        info.put("SENSOR_INFO_EXPOSURE_TIME_RANGE_MIN_NS", range.getLower());
+                        info.put("SENSOR_INFO_EXPOSURE_TIME_RANGE_MAX_NS", range.getUpper());
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- FRAME DURATION RANGE ----
+                try {
+                    Range<Long> range = chars.get(CameraCharacteristics.SENSOR_INFO_FRAME_DURATION_RANGE);
+                    if (range != null) {
+                        info.put("SENSOR_INFO_FRAME_DURATION_RANGE_MIN_NS", range.getLower());
+                        info.put("SENSOR_INFO_FRAME_DURATION_RANGE_MAX_NS", range.getUpper());
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- BLACK LEVEL PATTERN ----
+                try {
+                    BlackLevelPattern blp = chars.get(CameraCharacteristics.SENSOR_INFO_BLACK_LEVEL_PATTERN);
+                    if (blp != null) {
+                        int[] offsets = blp.getOffsets();
+                        info.put("SENSOR_INFO_BLACK_LEVEL_PATTERN_R", offsets[0]);
+                        info.put("SENSOR_INFO_BLACK_LEVEL_PATTERN_GEVEN", offsets[1]);
+                        info.put("SENSOR_INFO_BLACK_LEVEL_PATTERN_GODD", offsets[2]);
+                        info.put("SENSOR_INFO_BLACK_LEVEL_PATTERN_B", offsets[3]);
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- LENS DISTORTION ----
+                try {
+                    float[] dist = chars.get(CameraCharacteristics.LENS_DISTORTION);
+                    if (dist != null) info.put("LENS_DISTORTION", dist);
+                } catch (Exception ignored) {}
+
+                // ---- LENS AVAILABLE APERTURES ----
+                try {
+                    float[] apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES);
+                    if (apertures != null) info.put("LENS_INFO_AVAILABLE_APERTURES", apertures);
+                } catch (Exception ignored) {}
+
+                // ---- LENS AVAILABLE FOCAL LENGTHS ----
+                try {
+                    float[] fls = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+                    if (fls != null) info.put("LENS_INFO_AVAILABLE_FOCAL_LENGTHS", fls);
+                } catch (Exception ignored) {}
+
+                // ---- LENS HYPERFOCAL DISTANCE ----
+                try {
+                    Float hyp = chars.get(CameraCharacteristics.LENS_INFO_HYPERFOCAL_DISTANCE);
+                    if (hyp != null) info.put("LENS_INFO_HYPERFOCAL_DISTANCE", hyp);
+                } catch (Exception ignored) {}
+
+                // ---- LENS MIN FOCUS DISTANCE ----
+                try {
+                    Float min = chars.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE);
+                    if (min != null) info.put("LENS_INFO_MINIMUM_FOCUS_DISTANCE", min);
+                } catch (Exception ignored) {}
+
+                // ---- HARDWARE LEVEL ----
+                try {
+                    Integer level = chars.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+                    if (level != null) {
+                        String[] levels = {"LIMITED", "FULL", "LEGACY", "LEVEL_3"};
+                        info.put("INFO_SUPPORTED_HARDWARE_LEVEL_NAME", (level >= 0 && level < levels.length) ? levels[level] : "UNKNOWN");
+                        info.put("INFO_SUPPORTED_HARDWARE_LEVEL_VALUE", level);
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- FLASH AVAILABLE ----
+                try {
+                    Boolean flash = chars.get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                    if (flash != null) info.put("FLASH_INFO_AVAILABLE", flash);
+                } catch (Exception ignored) {}
+
+                // ---- SENSOR ORIENTATION ----
+                try {
+                    Integer orient = chars.get(CameraCharacteristics.SENSOR_ORIENTATION);
+                    if (orient != null) info.put("SENSOR_ORIENTATION", orient);
+                } catch (Exception ignored) {}
+
+                // ---- STREAM CONFIGURATION MAP (resolutions + RAW) ----
+                try {
+                    StreamConfigurationMap config = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                    if (config != null) {
+                        // JPEG resolutions
+                        Size[] jpegSizes = config.getOutputSizes(ImageFormat.JPEG);
+                        if (jpegSizes != null) {
+                            List<Map<String, Integer>> jpegResolutions = new ArrayList<>();
+                            for (Size s : jpegSizes) {
+                                Map<String, Integer> res = new HashMap<>();
+                                res.put("width", s.getWidth());
+                                res.put("height", s.getHeight());
+                                jpegResolutions.add(res);
+                            }
+                            info.put("JPEG_RESOLUTIONS", jpegResolutions);
+                        }
+                        // RAW support
+                        Size[] rawSizes = config.getOutputSizes(ImageFormat.RAW_SENSOR);
+                        info.put("RAW_SUPPORTED", rawSizes != null && rawSizes.length > 0);
+                        if (rawSizes != null && rawSizes.length > 0) {
+                            List<Map<String, Integer>> rawResolutions = new ArrayList<>();
+                            for (Size s : rawSizes) {
+                                Map<String, Integer> res = new HashMap<>();
+                                res.put("width", s.getWidth());
+                                res.put("height", s.getHeight());
+                                rawResolutions.add(res);
+                            }
+                            info.put("RAW_RESOLUTIONS", rawResolutions);
+                        }
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- CAPABILITIES ----
+                try {
+                    int[] caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
+                    if (caps != null) {
+                        info.put("REQUEST_AVAILABLE_CAPABILITIES", caps);
+                    }
+                } catch (Exception ignored) {}
+
+                // ---- Put this camera's data ----
                 cameras.put("camera_" + id, info);
             }
 
@@ -109,19 +273,15 @@ public class MainActivity extends Activity {
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             String json = gson.toJson(allData);
 
-            // Save to internal storage – no permission needed
+            // Save to internal storage
             File internalFile = new File(getFilesDir(), "camera_static_data.json");
             try (FileWriter fw = new FileWriter(internalFile)) {
                 fw.write(json);
             }
 
-            // Also attempt to save to Downloads if possible (no explicit permission required for Android 10+ using legacy mode, but we already removed storage permission)
-            // We'll just not save externally to avoid permission issues.
-
             status.setText("Data saved to:\n" + internalFile.getAbsolutePath() + "\n\nTap to share.");
             Toast.makeText(this, "JSON saved!", Toast.LENGTH_LONG).show();
 
-            // Make the TextView clickable to share
             status.setOnClickListener(v -> shareFile(internalFile));
 
         } catch (CameraAccessException | IOException e) {
