@@ -41,34 +41,15 @@ public class MainActivity extends Activity {
         status.setText("Initializing...");
         setContentView(status);
 
-        // Global exception handler to log crashes
-        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
-            logError(throwable);
-            finish();
-        });
+        // Log to internal file
+        log("App started.");
 
-        // Check permissions immediately
-        checkAndStart();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        // Re-check permissions when the app comes back to foreground
-        // (e.g., after user grants from settings)
-        if (!dataExtracted) {
-            checkAndStart();
-        }
-    }
-
-    private void checkAndStart() {
+        // Check permissions
         if (allPermissionsGranted()) {
-            // Permissions are granted – start extraction
-            logToFile("Permissions granted, starting extraction.");
-            new Handler(Looper.getMainLooper()).postDelayed(this::extractData, 300);
+            log("Permissions already granted.");
+            extractData();
         } else {
-            // Permissions not granted – request them
-            logToFile("Permissions NOT granted. Requesting...");
+            log("Permissions not granted, requesting...");
             ActivityCompat.requestPermissions(this, new String[]{
                     Manifest.permission.CAMERA,
                     Manifest.permission.WRITE_EXTERNAL_STORAGE
@@ -76,40 +57,66 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!dataExtracted) {
+            log("onResume – re-checking permissions.");
+            if (allPermissionsGranted()) {
+                log("Permissions granted (onResume).");
+                extractData();
+            } else {
+                log("Permissions still not granted (onResume).");
+                // Show a message to the user
+                Toast.makeText(this, "Permissions not granted. Please grant them in Settings.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
     private boolean allPermissionsGranted() {
         boolean camera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
         boolean storage = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
-        logToFile("Permission check: Camera=" + camera + ", Storage=" + storage);
+        String msg = "Permission check: Camera=" + camera + ", Storage=" + storage;
+        log(msg);
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
         return camera && storage;
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        log("onRequestPermissionsResult called.");
         if (requestCode == PERMISSION_CODE) {
             if (allPermissionsGranted()) {
-                logToFile("Permissions granted after request.");
+                log("Permissions granted after request.");
                 extractData();
             } else {
-                logToFile("Permissions denied after request.");
+                log("Permissions denied after request.");
                 status.setText("Permissions denied");
-                Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Permissions required. Please grant them in Settings.", Toast.LENGTH_LONG).show();
+                // Check if permanently denied
+                if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)) {
+                    log("User denied camera permission, but can ask again.");
+                } else {
+                    log("User permanently denied camera permission. Go to settings.");
+                }
             }
         }
     }
 
     private void extractData() {
         if (dataExtracted) {
-            logToFile("Data already extracted, skipping.");
+            log("Data already extracted, skipping.");
             return;
         }
         dataExtracted = true;
         status.setText("Extracting camera data...");
-        logToFile("Starting data extraction.");
+        log("Starting data extraction.");
 
         try {
             CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
             String[] ids = manager.getCameraIdList();
+            log("Camera IDs: " + ids.length);
             Map<String, Object> allData = new HashMap<>();
             Map<String, Object> cameras = new HashMap<>();
 
@@ -146,14 +153,20 @@ public class MainActivity extends Activity {
 
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             String json = gson.toJson(allData);
+            // Save to external storage
             File out = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "camera_static_data.json");
             try (FileWriter fw = new FileWriter(out)) {
                 fw.write(json);
             }
+            // Also save to internal storage as fallback
+            File internalOut = new File(getFilesDir(), "camera_static_data.json");
+            try (FileWriter fw = new FileWriter(internalOut)) {
+                fw.write(json);
+            }
 
-            status.setText("Data saved to:\n" + out.getAbsolutePath());
+            status.setText("Data saved to:\n" + out.getAbsolutePath() + "\nand\n" + internalOut.getAbsolutePath());
             Toast.makeText(this, "JSON saved!", Toast.LENGTH_LONG).show();
-            logToFile("Data saved successfully.");
+            log("Data saved successfully.");
         } catch (CameraAccessException | IOException e) {
             String errorMsg = "Error: " + e.getMessage();
             status.setText(errorMsg);
@@ -167,9 +180,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void logToFile(String msg) {
+    private void log(String msg) {
         try {
-            File logFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "camera_app.log");
+            File logFile = new File(getFilesDir(), "app.log");
             try (FileWriter fw = new FileWriter(logFile, true)) {
                 fw.write(java.time.LocalDateTime.now() + " - " + msg + "\n");
             }
@@ -182,7 +195,7 @@ public class MainActivity extends Activity {
             PrintWriter pw = new PrintWriter(sw);
             t.printStackTrace(pw);
             String stack = sw.toString();
-            File logFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "camera_error.log");
+            File logFile = new File(getFilesDir(), "error.log");
             try (FileWriter fw = new FileWriter(logFile)) {
                 fw.write(stack);
             }
