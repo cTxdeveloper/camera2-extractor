@@ -109,6 +109,14 @@ public class MainActivity extends Activity implements LifecycleOwner, SensorEven
             return;
         }
 
+        // Initialize location client (only if permissions granted)
+        try {
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+        } catch (Exception e) {
+            status.setText("Location services unavailable");
+            fusedLocationClient = null;
+        }
+
         // Sensors
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
@@ -119,7 +127,6 @@ public class MainActivity extends Activity implements LifecycleOwner, SensorEven
         registerSensors();
 
         // Location
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         getLocation();
 
         // Camera
@@ -142,7 +149,7 @@ public class MainActivity extends Activity implements LifecycleOwner, SensorEven
         super.onResume();
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME);
         registerSensors();
-        getLocation();
+        getLocation(); // safe call
     }
 
     @Override
@@ -222,11 +229,19 @@ public class MainActivity extends Activity implements LifecycleOwner, SensorEven
     public void onAccuracyChanged(Sensor sensor, int accuracy) {}
 
     private void getLocation() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            fusedLocationClient.getLastLocation().addOnSuccessListener(loc -> {
-                if (loc != null) lastLocation = loc;
-            });
+        if (fusedLocationClient == null) {
+            // Location client not available
+            return;
         }
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // No permission, skip
+            return;
+        }
+        fusedLocationClient.getLastLocation().addOnSuccessListener(loc -> {
+            if (loc != null) lastLocation = loc;
+        }).addOnFailureListener(e -> {
+            // Ignore failure
+        });
     }
 
     private void startCamera() {
@@ -329,6 +344,8 @@ public class MainActivity extends Activity implements LifecycleOwner, SensorEven
             loc.put("provider", lastLocation.getProvider());
             loc.put("time", lastLocation.getTime());
             allData.put("location", loc);
+        } else {
+            allData.put("location", "Not available");
         }
 
         // 5. File info
@@ -395,7 +412,6 @@ public class MainActivity extends Activity implements LifecycleOwner, SensorEven
                     if (cfa != null) { String[] cfaNames = {"RGGB","GRBG","GBRG","BGGR","RGBIR"};
                         info.put("SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_NAME", (cfa>=0 && cfa<cfaNames.length)?cfaNames[cfa]:"UNKNOWN");
                         info.put("SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_VALUE", cfa); } } catch (Exception ignored) {}
-                // Black level pattern – removed due to compile issues (we can add back later)
                 // Sensitivity range
                 try { Range<Integer> range = chars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE);
                     if (range != null) { info.put("SENSOR_INFO_SENSITIVITY_RANGE_MIN", range.getLower());
@@ -404,7 +420,6 @@ public class MainActivity extends Activity implements LifecycleOwner, SensorEven
                 try { Range<Long> range = chars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE);
                     if (range != null) { info.put("SENSOR_INFO_EXPOSURE_TIME_RANGE_MIN_NS", range.getLower());
                         info.put("SENSOR_INFO_EXPOSURE_TIME_RANGE_MAX_NS", range.getUpper()); } } catch (Exception ignored) {}
-                // Frame duration range – removed due to compile issues
                 // Distortion
                 try { float[] dist = chars.get(CameraCharacteristics.LENS_DISTORTION);
                     if (dist != null) info.put("LENS_DISTORTION", dist); } catch (Exception ignored) {}
