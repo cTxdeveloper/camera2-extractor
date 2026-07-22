@@ -32,52 +32,81 @@ import java.util.Map;
 public class MainActivity extends Activity {
     private static final int PERMISSION_CODE = 100;
     private TextView status;
+    private boolean dataExtracted = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Create a simple TextView to show status
         status = new TextView(this);
         status.setText("Initializing...");
         setContentView(status);
 
-        // Write any crash to a log file
+        // Global exception handler to log crashes
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             logError(throwable);
             finish();
         });
 
-        // Check permissions
-        if (!allPermissionsGranted()) {
+        // Check permissions immediately
+        checkAndStart();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Re-check permissions when the app comes back to foreground
+        // (e.g., after user grants from settings)
+        if (!dataExtracted) {
+            checkAndStart();
+        }
+    }
+
+    private void checkAndStart() {
+        if (allPermissionsGranted()) {
+            // Permissions are granted – start extraction
+            logToFile("Permissions granted, starting extraction.");
+            new Handler(Looper.getMainLooper()).postDelayed(this::extractData, 300);
+        } else {
+            // Permissions not granted – request them
+            logToFile("Permissions NOT granted. Requesting...");
             ActivityCompat.requestPermissions(this, new String[]{
                     Manifest.permission.CAMERA,
                     Manifest.permission.WRITE_EXTERNAL_STORAGE
             }, PERMISSION_CODE);
-            return;
         }
-
-        // Start extraction after a short delay
-        new Handler(Looper.getMainLooper()).postDelayed(this::extractData, 500);
     }
 
     private boolean allPermissionsGranted() {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-               ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        boolean camera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+        boolean storage = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        logToFile("Permission check: Camera=" + camera + ", Storage=" + storage);
+        return camera && storage;
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_CODE && allPermissionsGranted()) {
-            extractData();
-        } else {
-            Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show();
-            status.setText("Permissions denied");
+        if (requestCode == PERMISSION_CODE) {
+            if (allPermissionsGranted()) {
+                logToFile("Permissions granted after request.");
+                extractData();
+            } else {
+                logToFile("Permissions denied after request.");
+                status.setText("Permissions denied");
+                Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
     private void extractData() {
+        if (dataExtracted) {
+            logToFile("Data already extracted, skipping.");
+            return;
+        }
+        dataExtracted = true;
         status.setText("Extracting camera data...");
+        logToFile("Starting data extraction.");
+
         try {
             CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
             String[] ids = manager.getCameraIdList();
@@ -124,6 +153,7 @@ public class MainActivity extends Activity {
 
             status.setText("Data saved to:\n" + out.getAbsolutePath());
             Toast.makeText(this, "JSON saved!", Toast.LENGTH_LONG).show();
+            logToFile("Data saved successfully.");
         } catch (CameraAccessException | IOException e) {
             String errorMsg = "Error: " + e.getMessage();
             status.setText(errorMsg);
@@ -135,6 +165,15 @@ public class MainActivity extends Activity {
             Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show();
             logError(e);
         }
+    }
+
+    private void logToFile(String msg) {
+        try {
+            File logFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "camera_app.log");
+            try (FileWriter fw = new FileWriter(logFile, true)) {
+                fw.write(java.time.LocalDateTime.now() + " - " + msg + "\n");
+            }
+        } catch (Exception ignored) {}
     }
 
     private void logError(Throwable t) {
