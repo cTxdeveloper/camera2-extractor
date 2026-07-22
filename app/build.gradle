@@ -1,18 +1,17 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace 'com.example.camera2extractor'
-    compileSdk 33
+    compileSdk 30
     defaultConfig {
         applicationId "com.example.camera2extractor"
         minSdk 21
-        targetSdk 33
+        targetSdk 30
         versionCode 1
         versionName "1.0"
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
 }
 
