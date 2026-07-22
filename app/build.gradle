@@ -10,11 +10,11 @@ configurations.all {
 
 android {
     namespace 'com.example.camera2extractor'
-    compileSdk 33
+    compileSdk 34
     defaultConfig {
         applicationId "com.example.camera2extractor"
         minSdk 21
-        targetSdk 33
+        targetSdk 34
         versionCode 1
         versionName "1.0"
     }
@@ -40,6 +40,4 @@ dependencies {
 
     // Google Play Services for Location
     implementation 'com.google.android.gms:play-services-location:21.0.1'
-
-    // For EXIF parsing (built into Android, but we use it via standard APIs)
 }
