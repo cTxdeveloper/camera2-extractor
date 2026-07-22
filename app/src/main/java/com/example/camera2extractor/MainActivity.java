@@ -1,6 +1,7 @@
 package com.example.camera2extractor;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
@@ -14,8 +15,6 @@ import android.os.Looper;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
@@ -25,20 +24,30 @@ import com.google.gson.GsonBuilder;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.HashMap;
 import java.util.Map;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends Activity {
     private static final int PERMISSION_CODE = 100;
     private TextView status;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Create a simple TextView to show status
         status = new TextView(this);
         status.setText("Initializing...");
         setContentView(status);
 
+        // Write any crash to a log file
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            logError(throwable);
+            finish();
+        });
+
+        // Check permissions
         if (!allPermissionsGranted()) {
             ActivityCompat.requestPermissions(this, new String[]{
                     Manifest.permission.CAMERA,
@@ -47,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        // Start extraction after a short delay
         new Handler(Looper.getMainLooper()).postDelayed(this::extractData, 500);
     }
 
@@ -56,12 +66,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_CODE && allPermissionsGranted()) {
             extractData();
         } else {
             Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show();
+            status.setText("Permissions denied");
         }
     }
 
@@ -82,10 +93,8 @@ public class MainActivity extends AppCompatActivity {
                 try { info.put("SENSOR_INFO_PIXEL_ARRAY_SIZE", chars.get(CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE)); } catch (Exception ignored) {}
                 try { info.put("SENSOR_INFO_ACTIVE_ARRAY_SIZE", chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)); } catch (Exception ignored) {}
                 try { info.put("COLOR_FILTER_ARRANGEMENT", chars.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT)); } catch (Exception ignored) {}
-                // Black level pattern removed due to compilation issue (can be re-added later)
                 try { info.put("SENSITIVITY_RANGE", chars.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)); } catch (Exception ignored) {}
                 try { info.put("EXPOSURE_TIME_RANGE", chars.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)); } catch (Exception ignored) {}
-                // Frame duration range removed due to compilation issue
                 try { info.put("LENS_DISTORTION", chars.get(CameraCharacteristics.LENS_DISTORTION)); } catch (Exception ignored) {}
                 try { info.put("APERTURES", chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)); } catch (Exception ignored) {}
                 try { info.put("FOCAL_LENGTHS", chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)); } catch (Exception ignored) {}
@@ -116,8 +125,28 @@ public class MainActivity extends AppCompatActivity {
             status.setText("Data saved to:\n" + out.getAbsolutePath());
             Toast.makeText(this, "JSON saved!", Toast.LENGTH_LONG).show();
         } catch (CameraAccessException | IOException e) {
-            status.setText("Error: " + e.getMessage());
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            String errorMsg = "Error: " + e.getMessage();
+            status.setText(errorMsg);
+            Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show();
+            logError(e);
+        } catch (Exception e) {
+            String errorMsg = "Unexpected error: " + e.getMessage();
+            status.setText(errorMsg);
+            Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show();
+            logError(e);
         }
+    }
+
+    private void logError(Throwable t) {
+        try {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            t.printStackTrace(pw);
+            String stack = sw.toString();
+            File logFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "camera_error.log");
+            try (FileWriter fw = new FileWriter(logFile)) {
+                fw.write(stack);
+            }
+        } catch (Exception ignored) {}
     }
 }
