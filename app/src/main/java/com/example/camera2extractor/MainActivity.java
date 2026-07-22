@@ -3,10 +3,12 @@ package com.example.camera2extractor;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -17,6 +19,7 @@ import android.widget.Toast;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -41,82 +44,34 @@ public class MainActivity extends Activity {
         status.setText("Initializing...");
         setContentView(status);
 
-        // Log to internal file
-        log("App started.");
-
-        // Check permissions
-        if (allPermissionsGranted()) {
-            log("Permissions already granted.");
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             extractData();
         } else {
-            log("Permissions not granted, requesting...");
-            ActivityCompat.requestPermissions(this, new String[]{
-                    Manifest.permission.CAMERA,
-                    Manifest.permission.WRITE_EXTERNAL_STORAGE
-            }, PERMISSION_CODE);
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, PERMISSION_CODE);
         }
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        if (!dataExtracted) {
-            log("onResume – re-checking permissions.");
-            if (allPermissionsGranted()) {
-                log("Permissions granted (onResume).");
-                extractData();
-            } else {
-                log("Permissions still not granted (onResume).");
-                // Show a message to the user
-                Toast.makeText(this, "Permissions not granted. Please grant them in Settings.", Toast.LENGTH_LONG).show();
-            }
-        }
-    }
-
-    private boolean allPermissionsGranted() {
-        boolean camera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
-        boolean storage = ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
-        String msg = "Permission check: Camera=" + camera + ", Storage=" + storage;
-        log(msg);
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
-        return camera && storage;
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        log("onRequestPermissionsResult called.");
         if (requestCode == PERMISSION_CODE) {
-            if (allPermissionsGranted()) {
-                log("Permissions granted after request.");
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 extractData();
             } else {
-                log("Permissions denied after request.");
-                status.setText("Permissions denied");
-                Toast.makeText(this, "Permissions required. Please grant them in Settings.", Toast.LENGTH_LONG).show();
-                // Check if permanently denied
-                if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.CAMERA)) {
-                    log("User denied camera permission, but can ask again.");
-                } else {
-                    log("User permanently denied camera permission. Go to settings.");
-                }
+                status.setText("Camera permission required");
+                Toast.makeText(this, "Camera permission required", Toast.LENGTH_LONG).show();
             }
         }
     }
 
     private void extractData() {
-        if (dataExtracted) {
-            log("Data already extracted, skipping.");
-            return;
-        }
+        if (dataExtracted) return;
         dataExtracted = true;
         status.setText("Extracting camera data...");
-        log("Starting data extraction.");
 
         try {
             CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
             String[] ids = manager.getCameraIdList();
-            log("Camera IDs: " + ids.length);
             Map<String, Object> allData = new HashMap<>();
             Map<String, Object> cameras = new HashMap<>();
 
@@ -153,40 +108,46 @@ public class MainActivity extends Activity {
 
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             String json = gson.toJson(allData);
-            // Save to external storage
-            File out = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "camera_static_data.json");
-            try (FileWriter fw = new FileWriter(out)) {
-                fw.write(json);
-            }
-            // Also save to internal storage as fallback
-            File internalOut = new File(getFilesDir(), "camera_static_data.json");
-            try (FileWriter fw = new FileWriter(internalOut)) {
+
+            // Save to internal storage – no permission needed
+            File internalFile = new File(getFilesDir(), "camera_static_data.json");
+            try (FileWriter fw = new FileWriter(internalFile)) {
                 fw.write(json);
             }
 
-            status.setText("Data saved to:\n" + out.getAbsolutePath() + "\nand\n" + internalOut.getAbsolutePath());
+            // Also attempt to save to Downloads if possible (no explicit permission required for Android 10+ using legacy mode, but we already removed storage permission)
+            // We'll just not save externally to avoid permission issues.
+
+            status.setText("Data saved to:\n" + internalFile.getAbsolutePath() + "\n\nTap to share.");
             Toast.makeText(this, "JSON saved!", Toast.LENGTH_LONG).show();
-            log("Data saved successfully.");
+
+            // Make the TextView clickable to share
+            status.setOnClickListener(v -> shareFile(internalFile));
+
         } catch (CameraAccessException | IOException e) {
-            String errorMsg = "Error: " + e.getMessage();
-            status.setText(errorMsg);
-            Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show();
+            status.setText("Error: " + e.getMessage());
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
             logError(e);
         } catch (Exception e) {
-            String errorMsg = "Unexpected error: " + e.getMessage();
-            status.setText(errorMsg);
-            Toast.makeText(this, errorMsg, Toast.LENGTH_LONG).show();
+            status.setText("Error: " + e.getMessage());
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
             logError(e);
         }
     }
 
-    private void log(String msg) {
+    private void shareFile(File file) {
         try {
-            File logFile = new File(getFilesDir(), "app.log");
-            try (FileWriter fw = new FileWriter(logFile, true)) {
-                fw.write(java.time.LocalDateTime.now() + " - " + msg + "\n");
-            }
-        } catch (Exception ignored) {}
+            Uri uri = FileProvider.getUriForFile(this,
+                    getPackageName() + ".provider",
+                    file);
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("application/json");
+            share.putExtra(Intent.EXTRA_STREAM, uri);
+            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(share, "Share JSON"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Share failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void logError(Throwable t) {
